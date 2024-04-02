@@ -456,7 +456,7 @@ class MagiQtouch_Driver:
             for d in self.current_state.cooler + self.current_state.heater:
                 if d.zoneType != ZONE_TYPE_COMMON.name:
                     zones.add(d.name)
-            self._zone_list.extend(sorted(list(zones)))
+            self._zone_list.extend(list(zones))
         return self._zone_list
 
     @staticmethod
