@@ -24,11 +24,15 @@ CONTROL_MODE_TEMP = "TEMP"  # todo check
 class ZoneType:
     def __init__(self, name):
         self.name = name
+        self._hash = hash("zt" + self.name)
 
     def __eq__(self, other):
         if isinstance(other, ZoneType):
             return other is self
         return other == self.name
+
+    def __hash__(self):
+        return self._hash
 
 
 ZONE_TYPE_NONE = ZoneType("NONE")

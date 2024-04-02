@@ -62,14 +62,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # driver.set_verbose(entry.options.get(CONF_VERBOSE, False), initial=True)
     await driver.startup(hass)
     # await coordinator.async_config_entry_first_refresh()
-    _LOGGER.warning("creating platforms now")
     for component in PLATFORMS:
         hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, component))
     # listen for changes to the configuration options
-    _LOGGER.warning("finished configuring entities")
-
     entry.async_on_unload(entry.add_update_listener(options_update_listener))
-    _LOGGER.warning("finished async_setup_entry")
     return True
 
 

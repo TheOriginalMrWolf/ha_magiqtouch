@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 
 
 def dataclass_from_dict(klass, d, show_errors=False):
@@ -380,23 +380,45 @@ class UnitDetails:
     programOverrideDisabled: bool = False
 
 
+# class ReadOnlyAverageUnit:
+#     def __init__(self, real_units: list[UnitDetails]):
+#         self.real_units = real_units
+
+#     def __getattr__(self, attr):
+#         vals = [getattr(u, attr) for u in self.real_units]
+#         if isinstance(vals[0], (float, int)):
+#             return sum(vals / len(self.real_units)
+
+#     @property
+#     def actual_temp(self):
+
+
+#     @property
+#     def actual_temp(self):
+#         return sum((u.actual_temp for u in self.real_units)) / len(self.real_units)
+
+#     @property
+#     def internal_temp(self):
+#         return sum((u.internal_temp for u in self.real_units)) / len(self.real_units)
+
+
 @dataclass
 class Fan:
-    cooler_available: bool
-    cooler_brand: int
-    heater_available: bool
-    heater_brand: int
-    heater_Fan_Speed: int
-    cooler_Fan_Speed: int
+    cooler_available: bool = False
+    cooler_brand: int = 0
+    heater_available: bool = False
+    heater_brand: int = 0
+    heater_Fan_Speed: int = 0
+    cooler_Fan_Speed: int = 0
 
 
 @dataclass
 class Installed:
-    evap: bool
-    faoc: bool
-    heater: bool
-    iaoc: bool
-    coolerType: int
+    evap: bool = False
+    faoc: bool = False
+    heater: bool = False
+    iaoc: bool = False
+    coolerType: int = 0
 
 
 @dataclass
@@ -410,9 +432,26 @@ class RemoteStatus:
     coolerFault: bool = False
     cooler: list[UnitDetails] = field(default_factory=list)
     heater: list[UnitDetails] = field(default_factory=list)
-    fan: Fan = None
+    fan: Fan = field(default_factory=Fan)
     touchCount: int = 0
-    installed: Installed = None
+    installed: Installed = field(default_factory=Installed)
+
+    def update(self, other: "RemoteStatus"):
+        for fld in fields(RemoteStatus):
+            current = getattr(self, fld.name)
+            new = getattr(other, fld.name)
+            if is_dataclass(fld.type):
+                for k, v in new.__dict__.items():
+                    setattr(current, k, v)
+            elif isinstance(fld.type, list):
+                for i, unit in enumerate(new):
+                    cu = current[i]
+                    if cu.zoneType != unit.zoneType or cu.name != unit.name:
+                        raise ValueError(f"units out of order\n{self}\n{other}")
+                    for k, v in dataclasses.astuple(unit):
+                        setattr(current[i], k, v)
+            else:
+                setattr(self, fld.name, new)
 
     def __str__(self):
         # report as valid json in logs

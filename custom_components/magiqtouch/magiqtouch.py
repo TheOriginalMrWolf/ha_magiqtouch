@@ -15,10 +15,12 @@ import aiohttp
 from mandate import Cognito
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import partial
+from itertools import chain
 from pathlib import Path
 from typing import Optional, Callable
 
-from .structures import RemoteStatus, SystemDetails, UnitDetails
+from .structures import RemoteStatus, SystemDetails
 from .const import (
     SCAN_INTERVAL,
     MODE_COOLER,
@@ -67,6 +69,8 @@ class MagiQtouch_Driver:
         self.current_state: RemoteStatus = RemoteStatus()
         self.current_system_state: SystemDetails = SystemDetails()
         self._zone_list = []
+        self._zone_coolers = dict()
+        self._zone_heaters = dict()
 
         self._update_listener = None
         self._update_listener_override = None
@@ -114,14 +118,10 @@ class MagiQtouch_Driver:
             return self._httpsession
 
     async def startup(self, hass):
-        _LOGGER.warning("startup")
-
         await self.login(hass)
         await self.get_system_details()
         await self.ws_start()
-        _LOGGER.warning("initial refresh")
         await self.full_refresh(initial=True)
-        _LOGGER.warning("refresh received")
 
     async def login(self, hass=None):
         self.hass = hass
@@ -164,7 +164,6 @@ class MagiQtouch_Driver:
         self._IdToken = self._cognito.id_token
 
         self.logged_in = True
-        _LOGGER.warning("Logged in")
         return True
 
     async def ws_start(self):
@@ -211,13 +210,12 @@ class MagiQtouch_Driver:
                 msg = "No response"
             else:
                 msg = f"Unexpected state after {job.status} responses"
-            _LOGGER.warning(f"setting job timeout: {msg}")
+            _LOGGER.warning(f"set job timeout: {msg}")
         if self.ws:
             await self.ws.close()
         return False
 
     async def ws_handler(self):
-        _LOGGER.warning("websocket start")
         while True:
             token = await self._get_token()
             headers = {"user-agent": "Dart/3.2 (dart:io)", "sec-websocket-protocol": "wasp"}
@@ -234,7 +232,7 @@ class MagiQtouch_Driver:
                     self.ws = ws
                     _LOGGER.info("websocket connected")
                     if self.pending_setting:
-                        _LOGGER.warning("sending pending message")
+                        _LOGGER.info("sending pending message")
                         message = self.pending_setting.message
                         await ws.send_str(message)
                     # json.dumps({"action": "status", "params": {"device": self._mac_address}})
@@ -363,7 +361,7 @@ class MagiQtouch_Driver:
             self._update_listener()
         if self.verbose and new_state != self.current_state:
             _LOGGER.warning(f"Current State: {new_state}")
-        self.current_state = new_state
+        self.current_state.update(new_state)
 
     def new_remote_props(self, state=None):
         state = state or self.current_state
@@ -393,7 +391,22 @@ class MagiQtouch_Driver:
 
         return data
 
-    async def _send_remote_props(self, data=None, checker=None):
+    @staticmethod
+    def state_checker(state, units, zone, field, value):
+        check = state.cooler if "c" in units else []
+        if "h" in units:
+            check.extend(state.heater)
+        if not check:
+            if getattr(state, field) != value:
+                return False
+        for u in check:
+            if not MagiQtouch_Driver.zone_match(u, zone):
+                continue
+            if getattr(u, field) != value:
+                return False
+        return True
+
+    async def send_current_state(self, checker, data=None):
         ts = self.current_state.timestamp
         data = data or self.new_remote_props()
         jdata = json.dumps(data)
@@ -413,7 +426,7 @@ class MagiQtouch_Driver:
         #     self._update_listener_override = override_listener
 
         if not checker:
-            checker = lambda state: state.timestamp != ts
+            checker = (lambda state: state.timestamp != ts,)
 
         # headers = await self._get_auth()
         # async with self.httpsession.put(
@@ -422,7 +435,7 @@ class MagiQtouch_Driver:
         #     data=jdata,
         # ) as rsp:
         #     _LOGGER.debug(f"Update response received: {rsp.json()}")
-        _LOGGER.warning("sending new settings")
+        _LOGGER.info("sending new settings")
         await self.ws_send(jdata, checker)
 
     def get_zone_name(self, zone):
@@ -438,48 +451,57 @@ class MagiQtouch_Driver:
             if self.current_system_state.NoOfZoneControls == 0:
                 return [ZONE_TYPE_NONE]
             self._zone_list = []
-            zones = set()  # Use set to provide de-duplication
+            # Always createa common / master entity
+            zones: set[str | ZoneType] = {ZONE_TYPE_COMMON}  # Use set to provide de-duplication
             for d in self.current_state.cooler + self.current_state.heater:
-                if d.zoneType == ZONE_TYPE_COMMON:
-                    self._zone_list = [ZONE_TYPE_COMMON]
-                else:
+                if d.zoneType != ZONE_TYPE_COMMON.name:
                     zones.add(d.name)
-            self._zone_list.extend(list(zones))
+            self._zone_list.extend(sorted(list(zones)))
         return self._zone_list
 
     @staticmethod
     def zone_match(dev, zone):
         return (
-            dev.zoneType == zone
+            zone == dev.zoneType
             if isinstance(zone, ZoneType)
-            else dev.name == zone
+            else zone == dev.name
             if isinstance(zone, str)
             else True
         )
 
     def available_coolers(self, zone):
-        return [d for d in self.current_state.cooler if self.zone_match(d, zone)]
+        if zone not in self._zone_coolers:
+            self._zone_coolers[zone] = [
+                d for d in self.current_state.cooler if self.zone_match(d, zone)
+            ]
+        return self._zone_coolers[zone]
 
     def available_heaters(self, zone):
-        return [d for d in self.current_state.heater if self.zone_match(d, zone)]
+        if zone not in self._zone_heaters:
+            self._zone_heaters[zone] = [
+                d for d in self.current_state.heater if self.zone_match(d, zone)
+            ]
+        return self._zone_heaters[zone]
 
     def active_device(self, state, zone=ZONE_TYPE_NONE):
         # if a zone has both heater and cooler, return the one
         # that matches system state.
         # Otherwise just return the device that's in zone.
-        devices = self.available_coolers(zone) + self.available_heaters(zone)
-        if not devices:
-            raise ValueError(f"invalid zone: {state}")
+        # devices = self.available_coolers(zone) + self.available_heaters(zone)
+        # if not devices:
+        #    raise ValueError(f"invalid zone: {state}")
 
         if state.runningMode in (MODE_COOLER, MODE_COOLER_FAN):
-            return devices[0]
+            devices = self.available_coolers(zone)
         elif state.runningMode in (MODE_HEATER, MODE_HEATER_FAN):
-            return devices[-1]
+            devices = self.available_heaters(zone)
+        elif state.runningMode == "":
+            raise ValueError(f"state not yet read: {state.runningMode}")
         else:
             _LOGGER.error(f"active device unknown mode: {state.runningMode}")
             raise ValueError(f"active device unknown mode: {state}")
-        raise ValueError(f"No active devices found for zone '{zone}' in state: {state}")
-        return UnitDetails()
+        if devices:
+            return devices[0]
 
     def current_device_state(self, zone=ZONE_TYPE_NONE):
         return self.active_device(self.current_state, zone)
@@ -487,36 +509,41 @@ class MagiQtouch_Driver:
     async def set_off(self):
         self.current_state.systemOn = False
         checker = lambda state: (not state.systemOn)
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     async def set_on(self):
         self.current_state.systemOn = True
         checker = lambda state: bool(state.systemOn)
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     def get_zone_state(self, zone):
         """Returns specific zone on and off."""
         device = self.current_device_state(zone)
-        return self.current_state.systemOn and device.zoneOn
+        return self.current_state.systemOn and device and device.zoneOn
 
     async def set_zone_state(self, zone, is_on):
         """Turns a specific zone on and off."""
-        device = self.current_device_state(zone)
+        if zone and zone in (ZONE_TYPE_COMMON, ZONE_TYPE_NONE):
+            on_state = None
+            return
         on_state = bool(is_on)
-        device.zoneOn = on_state
-        checker = lambda state: self.active_device(state, zone).zoneOn == on_state
+        for device in chain(self.available_coolers(zone), self.available_heaters(zone)):
+            device.zoneOn = on_state
+        checker = partial(
+            self.state_checker, units="hc", zone=zone, field="zoneOn", value=on_state
+        )
         if is_on:
             # if any zone is on, system needs to be on
             self.current_state.systemOn = True
         else:
             # if all zones are off, turn off system
-            all_dev = self.current_state.cooler + self.current_state.heater
+            all_dev = chain(self.current_state.cooler, self.current_state.heater)
             if not [d for d in all_dev if d.zoneOn]:
                 _LOGGER.warning("All zones off, turning system off")
                 self.current_state.systemOn = False
 
         _LOGGER.warning(f"set_zone_state {zone}={is_on} = {self.current_state}")
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     async def set_fan_only(self, zone=ZONE_TYPE_NONE):
         runningMode = self.current_state.runningMode
@@ -528,7 +555,7 @@ class MagiQtouch_Driver:
             _LOGGER.error(f"Don't know how to turn on fan from runningMode: {runningMode}")
 
     def _reset_device_state(self, zone):
-        for device in self.available_coolers(zone) + self.available_heaters(zone):
+        for device in chain(self.available_coolers(zone), self.available_heaters(zone)):
             device.runningState = "NOT_REQUIRED"
             device.zoneRunningState = "NOT_REQUIRED"
 
@@ -539,7 +566,7 @@ class MagiQtouch_Driver:
         checker = lambda state: (
             state.systemOn and self.current_state.runningMode == MODE_COOLER_FAN
         )
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     async def set_fan_only_heater(self, zone=ZONE_TYPE_NONE):
         self.current_state.systemOn = True
@@ -548,7 +575,7 @@ class MagiQtouch_Driver:
         checker = lambda state: (
             state.systemOn and self.current_state.runningMode == MODE_HEATER_FAN
         )
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     async def set_heating_by_temperature(self, zone=ZONE_TYPE_NONE):
         for heater in self.available_heaters(zone):
@@ -571,7 +598,7 @@ class MagiQtouch_Driver:
         def checker(state):
             return state.systemOn and state.runningMode == MODE_HEATER
 
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     async def set_cooling_by_temperature(self, zone=ZONE_TYPE_NONE):
         for cooler in self.available_coolers(zone):
@@ -594,7 +621,7 @@ class MagiQtouch_Driver:
         def checker(state):
             return state.systemOn and state.runningMode == MODE_COOLER
 
-        await self._send_remote_props(checker=checker)
+        await self.send_current_state(checker)
 
     # async def set_aoc_by_temperature(self, zone=ZONE_TYPE_NONE):
     #     for cooler in self.available_coolers(zone):
@@ -620,19 +647,30 @@ class MagiQtouch_Driver:
     #         nonlocal change
     #         return all((getattr(state, f) == v for f, v in change))
 
-    #     await self._send_remote_props(checker=checker)
+    #     await self.send_current_state(checker)
 
     async def set_current_speed(self, speed, zone=ZONE_TYPE_NONE):
         speed = int(speed)
-        self.current_device_state(zone).fan_speed = speed
-        checker = lambda state: self.active_device(state, zone).fan_speed == speed
-        await self._send_remote_props(checker=checker)
+        for unit in chain(self.current_state.cooler, self.current_state.heater):
+            unit.fan_speed = speed
+        # checker = lambda state: self.active_device(state, zone).fan_speed == speed
+        checker = partial(
+            self.state_checker, units="hc", zone=None, field="fan_speed", value=speed
+        )
+        await self.send_current_state(checker)
 
     async def set_temperature(self, new_temp, zone=ZONE_TYPE_NONE):
         new_temp = int(new_temp)
-        self.current_device_state(zone).set_temp = new_temp
-        checker = lambda state: self.active_device(state, zone).set_temp == new_temp
-        await self._send_remote_props(checker=checker)
+        if device := self.current_device_state(zone):
+            device.set_temp = new_temp
+            # checker = lambda state: self.active_device(state, zone).set_temp == new_temp
+            units = "h"
+            if self.current_state.runningMode in (MODE_COOLER, MODE_COOLER_FAN):
+                units = "c"
+            checker = partial(
+                self.state_checker, units=units, zone=zone, field="set_temp", value=new_temp
+            )
+            await self.send_current_state(checker)
 
     # def get_installed_device_config(self):
     #     # todo update attrs or delete function
