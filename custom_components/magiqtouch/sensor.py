@@ -51,7 +51,7 @@ async def async_setup_entry(
             driver,
             coordinator,
             zone=zone,
-            data_callback=lambda z: driver.current_device_state(z).internal_temp,
+            data_callback=lambda z: driver.active_device(z).internal_temp,
         )
         for zone in driver.zone_list
     ]
@@ -62,7 +62,7 @@ async def async_setup_entry(
                 "External Temperature",
                 driver,
                 coordinator,
-                data_callback=lambda z: driver.current_device_state(z).external_temp,
+                data_callback=lambda z: driver.active_device(z).external_temp,
             )
         )
     # todo add zone temperature sensor etc

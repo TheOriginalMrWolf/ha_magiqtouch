@@ -198,7 +198,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
             # No sensor
             try:
                 # report common zone if it exists
-                current = self.controller.current_device_state(ZONE_TYPE_COMMON).internal_temp
+                current = self.controller.active_device(ZONE_TYPE_COMMON).internal_temp
             except:
                 current = self.target_temperature
         return current
@@ -208,14 +208,14 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         """Return the temperature we try to reach."""
         units = self.active_units or self.inactive_units
         return units[0].set_temp
-        # return self.controller.current_device_state(self.zone).set_temp
+        # return self.controller.active_device(self.zone).set_temp
 
     @property
     def max_temp(self):
         units = self.active_units or self.inactive_units
         return units[0].max_temp
         # try:
-        #     return self.controller.current_device_state(self.zone).max_temp
+        #     return self.controller.active_device(self.zone).max_temp
         # except:
         #     return 35
 
@@ -224,7 +224,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         units = self.active_units or self.inactive_units
         return units[0].min_temp
         # try:
-        #     return self.controller.current_device_state(self.zone).min_temp
+        #     return self.controller.active_device(self.zone).min_temp
         # except:
         #     return 7
 
@@ -232,13 +232,13 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         # If turning any zone on, ensure system is on
         await self.controller.set_on()
         if not self.master_zone:
-            await self.controller.set_zone_state(self.zone, True)
+            await self.controller.set_zone_onoff(self.zone, True)
 
     async def async_turn_off(self):
         if self.master_zone:
             await self.controller.set_off()
         else:
-            await self.controller.set_zone_state(self.zone, False)
+            await self.controller.set_zone_onoff(self.zone, False)
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
@@ -259,7 +259,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
 
         # Show as off if individual zone is off
         if (not self.master_mode_only_controller) and self.zone and self.zone != ZONE_TYPE_NONE:
-            zone_on = self.controller.get_zone_state(self.zone)
+            zone_on = self.controller.get_zone_onoff(self.zone)
             if not zone_on:
                 _LOGGER.debug(HVACAction.OFF + " (zone)")
                 return HVACAction.OFF
@@ -292,7 +292,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
             return HVACMode.OFF
 
         if (not self.master_mode_only_controller) and self.zone and self.zone != ZONE_TYPE_NONE:
-            zone_on = self.controller.get_zone_state(self.zone)
+            zone_on = self.controller.get_zone_onoff(self.zone)
             if not zone_on:
                 _LOGGER.debug(HVACAction.OFF + " (zone)")
                 return HVACMode.OFF
@@ -364,7 +364,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         # If we're not turning anything off, and this isn't a "whole system" zone,
         # make sure this zone is on
         if self.zone and hvac_mode != HVACMode.OFF:
-            await self.controller.set_zone_state(self.zone, True)
+            await self.controller.set_zone_onoff(self.zone, True)
 
         await self.coordinator.async_request_refresh()
 
@@ -376,10 +376,10 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
     @property
     def fan_mode(self):
         """Return the current fan modes."""
-        if self.controller.current_device_state(self.zone).control_mode == CONTROL_MODE_TEMP:
+        if self.controller.active_device(self.zone).control_mode == CONTROL_MODE_TEMP:
             # running in temperature set point mode
             return FAN_SPEED_BY_TEMP
-        speed = str(self.controller.current_device_state(self.zone).fan_speed)
+        speed = str(self.controller.active_device(self.zone).fan_speed)
         if speed == "0":
             return FAN_SPEED_BY_TEMP
         return speed
@@ -424,7 +424,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
             return PRESET_FAN_FRESH
 
         temperature_mode = (
-            self.controller.current_device_state(self.zone).control_mode == CONTROL_MODE_TEMP
+            self.controller.active_device(self.zone).control_mode == CONTROL_MODE_TEMP
         )
         cooling_mode = self.controller.current_state.runningMode == MODE_COOLER
         if cooling_mode:

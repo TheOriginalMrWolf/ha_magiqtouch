@@ -483,28 +483,24 @@ class MagiQtouch_Driver:
             ]
         return self._zone_heaters[zone]
 
-    def active_device(self, state, zone=ZONE_TYPE_NONE):
+    def active_device(self, state=None, zone=ZONE_TYPE_NONE):
         # if a zone has both heater and cooler, return the one
         # that matches system state.
         # Otherwise just return the device that's in zone.
         # devices = self.available_coolers(zone) + self.available_heaters(zone)
         # if not devices:
         #    raise ValueError(f"invalid zone: {state}")
-
+        state = state or self.current_state
         if state.runningMode in (MODE_COOLER, MODE_COOLER_FAN):
-            devices = self.available_coolers(zone)
+            devices = self.available_coolers(zone) or self.available_heaters(zone)
         elif state.runningMode in (MODE_HEATER, MODE_HEATER_FAN):
-            devices = self.available_heaters(zone)
+            devices = self.available_heaters(zone) or self.available_coolers(zone)
         elif state.runningMode == "":
             raise ValueError(f"state not yet read: {state.runningMode}")
         else:
-            _LOGGER.error(f"active device unknown mode: {state.runningMode}")
             raise ValueError(f"active device unknown mode: {state}")
         if devices:
             return devices[0]
-
-    def current_device_state(self, zone=ZONE_TYPE_NONE):
-        return self.active_device(self.current_state, zone)
 
     async def set_off(self):
         self.current_state.systemOn = False
@@ -516,12 +512,12 @@ class MagiQtouch_Driver:
         checker = lambda state: bool(state.systemOn)
         await self.send_current_state(checker)
 
-    def get_zone_state(self, zone):
+    def get_zone_onoff(self, zone):
         """Returns specific zone on and off."""
-        device = self.current_device_state(zone)
+        device = self.active_device(zone)
         return self.current_state.systemOn and device and device.zoneOn
 
-    async def set_zone_state(self, zone, is_on):
+    async def set_zone_onoff(self, zone, is_on):
         """Turns a specific zone on and off."""
         if zone and zone in (ZONE_TYPE_COMMON, ZONE_TYPE_NONE):
             on_state = None
@@ -542,7 +538,7 @@ class MagiQtouch_Driver:
                 _LOGGER.warning("All zones off, turning system off")
                 self.current_state.systemOn = False
 
-        _LOGGER.warning(f"set_zone_state {zone}={is_on} = {self.current_state}")
+        _LOGGER.warning(f"set_zone_onoff {zone}={is_on} = {self.current_state}")
         await self.send_current_state(checker)
 
     async def set_fan_only(self, zone=ZONE_TYPE_NONE):
@@ -661,7 +657,7 @@ class MagiQtouch_Driver:
 
     async def set_temperature(self, new_temp, zone=ZONE_TYPE_NONE):
         new_temp = int(new_temp)
-        if device := self.current_device_state(zone):
+        if device := self.active_device(zone):
             device.set_temp = new_temp
             # checker = lambda state: self.active_device(state, zone).set_temp == new_temp
             units = "h"
