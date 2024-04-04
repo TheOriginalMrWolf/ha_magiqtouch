@@ -483,7 +483,7 @@ class MagiQtouch_Driver:
             ]
         return self._zone_heaters[zone]
 
-    def active_device(self, state=None, zone=ZONE_TYPE_NONE):
+    def active_device(self, zone=ZONE_TYPE_NONE, state=None):
         # if a zone has both heater and cooler, return the one
         # that matches system state.
         # Otherwise just return the device that's in zone.
@@ -649,7 +649,7 @@ class MagiQtouch_Driver:
         speed = int(speed)
         for unit in chain(self.current_state.cooler, self.current_state.heater):
             unit.fan_speed = speed
-        # checker = lambda state: self.active_device(state, zone).fan_speed == speed
+        # checker = lambda state: self.active_device(zone, state).fan_speed == speed
         checker = partial(
             self.state_checker, units="hc", zone=None, field="fan_speed", value=speed
         )
