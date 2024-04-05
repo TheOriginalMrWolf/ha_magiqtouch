@@ -343,7 +343,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         _LOGGER.debug("Set hvac_mode: %s" % hvac_mode)
         if hvac_mode == HVACMode.OFF:
             await self.async_turn_off()
-        elif hvac_mode == HVACMode.ON:
+        elif hvac_mode == HVACMode.AUTO:
             await self.async_turn_on()
 
         elif self.master_zone:
