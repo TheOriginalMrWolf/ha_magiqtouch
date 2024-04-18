@@ -22,14 +22,14 @@ CONTROL_MODE_TEMP = "TEMP"  # todo check
 
 
 class ZoneType:
-    def __init__(self, name):
-        self.name = name
-        self._hash = hash("zt" + self.name)
+    def __init__(self, label):
+        self.label = label
+        self._hash = hash("zt" + self.label)
 
     def __eq__(self, other):
         if isinstance(other, ZoneType):
             return other is self
-        return other == self.name
+        return other == self.label
 
     def __hash__(self):
         return self._hash

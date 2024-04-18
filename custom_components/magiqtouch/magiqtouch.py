@@ -299,12 +299,15 @@ class MagiQtouch_Driver:
         ## Get system data & MACADDRESS
         try:
             headers = await self._get_auth(self._IdToken)
-            redacted = None
+            redacted = content = None
             async with self.httpsession.get(
                 ApiUrl + "devices/system",
                 headers=headers,  # {"Authorization": self._cognito.id_token},
             ) as rsp:
                 system_data = (await rsp.json())[0]
+                if not isinstance(system_data, dict):
+                    content = await rsp.text()
+                    raise ValueError(f"Error reading System State: {content}")
                 redacted = copy.deepcopy(system_data)
                 redacted["System"]["Address"] = "<redacted>"
                 redacted["Wifi_Module"]["MacAddressId"] = "<redacted>"
@@ -313,7 +316,6 @@ class MagiQtouch_Driver:
                 # parse the json into dataclass after its logged in case of errors
                 self.current_system_state = SystemDetails.from_dict(system_data)
                 self._mac_address = self.current_system_state.Wifi_Module.MacAddressId
-
         except Exception:
             _LOGGER.exception("failed to query devices/system")
             if redacted:
@@ -356,12 +358,15 @@ class MagiQtouch_Driver:
             logger = _LOGGER.warning if self.verbose else _LOGGER.debug
             logger("State watching: %s" % new_state)
             return self._update_listener_override(new_state)
-        elif self._update_listener:
-            _LOGGER.debug("State updated: %s" % new_state)
-            self._update_listener()
+
         if self.verbose and new_state != self.current_state:
             _LOGGER.warning(f"Current State: {new_state}")
+
         self.current_state.update(new_state)
+
+        if self._update_listener:
+            _LOGGER.debug("State updated: %s" % new_state)
+            self._update_listener()
 
     def new_remote_props(self, state=None):
         state = state or self.current_state
@@ -442,7 +447,7 @@ class MagiQtouch_Driver:
         if not zone:
             return ""
         if isinstance(zone, ZoneType):
-            return zone.name
+            return zone.label
         return zone
 
     @property
@@ -454,7 +459,7 @@ class MagiQtouch_Driver:
             # Always createa common / master entity
             zones: set[str | ZoneType] = {ZONE_TYPE_COMMON}  # Use set to provide de-duplication
             for d in self.current_state.cooler + self.current_state.heater:
-                if d.zoneType != ZONE_TYPE_COMMON.name:
+                if d.zoneType != ZONE_TYPE_COMMON.label:
                     zones.add(d.name)
             self._zone_list.extend(list(zones))
         return self._zone_list
@@ -462,7 +467,7 @@ class MagiQtouch_Driver:
     @staticmethod
     def zone_match(dev, zone):
         return (
-            zone == dev.zoneType
+            zone.label == dev.zoneType
             if isinstance(zone, ZoneType)
             else zone == dev.name
             if isinstance(zone, str)
@@ -474,6 +479,8 @@ class MagiQtouch_Driver:
             self._zone_coolers[zone] = [
                 d for d in self.current_state.cooler if self.zone_match(d, zone)
             ]
+            _LOGGER.debug(f"self._zone_coolers: {self._zone_coolers}")
+
         return self._zone_coolers[zone]
 
     def available_heaters(self, zone):
@@ -481,6 +488,8 @@ class MagiQtouch_Driver:
             self._zone_heaters[zone] = [
                 d for d in self.current_state.heater if self.zone_match(d, zone)
             ]
+            _LOGGER.debug(f"self._zone_heaters: {self._zone_heaters}")
+
         return self._zone_heaters[zone]
 
     def active_device(self, zone=ZONE_TYPE_NONE, state=None):
