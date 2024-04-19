@@ -212,6 +212,8 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
 
     @property
     def max_temp(self):
+        if not self.available:
+            return 35
         units = self.active_units or self.inactive_units
         return units[0].max_temp
         # try:
@@ -221,6 +223,8 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
 
     @property
     def min_temp(self):
+        if not self.available:
+            return 7
         units = self.active_units or self.inactive_units
         return units[0].min_temp
         # try:
