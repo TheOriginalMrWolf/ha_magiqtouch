@@ -246,7 +246,10 @@ class MagiQtouch_Driver:
                             aiohttp.WSMsgType.CLOSING,
                             aiohttp.WSMsgType.CLOSED,
                         ):
-                            _LOGGER.warning("ws: received close request")
+                            _LOGGER.warning(
+                                f"ws: received close request after "
+                                f"{counter} {msg} {msg.type} {msg.data}"
+                            )
                             break
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             data = json.loads(msg.data)
