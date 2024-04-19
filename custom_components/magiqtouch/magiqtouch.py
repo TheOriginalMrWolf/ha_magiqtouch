@@ -510,6 +510,8 @@ class MagiQtouch_Driver:
             raise ValueError(f"active device unknown mode: {state}")
         if devices:
             return devices[0]
+        else:
+            raise ValueError(f"active device unknown for '{zone}': {state}")
 
     async def set_off(self):
         self.current_state.systemOn = False
