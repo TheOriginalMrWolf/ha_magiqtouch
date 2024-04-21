@@ -121,6 +121,10 @@ class MagiQtouch_Driver:
         await self.login(hass)
         await self.get_system_details()
         await self.ws_start()
+        for _ in range(10):
+            if self.ws:
+                break
+            await asyncio.sleep(1)
         await self.full_refresh(initial=True)
 
     async def login(self, hass=None):
@@ -189,18 +193,21 @@ class MagiQtouch_Driver:
         if self.pending_setting:
             self.pending_setting.status = "replaced"
             self.pending_setting.event.set()
+            _LOGGER.warning("previous job replaced")
         self.pending_setting = job
 
         if self.ws and not self.ws.closed:
-            # _LOGGER.info("restart websocket")
+            _LOGGER.warning("ws send")
             await self.ws.send_str(message)
+        else:
+            _LOGGER.warning("ws not open yet")
         # if not open, the pending job will be
-        # sent when it does ope
+        # sent when it does open
 
         try:
             await asyncio.wait_for(job.event.wait(), timeout)
             if self.verbose:
-                _LOGGER.warning("Sent and checked: %s\n%s" % (message, self.current_state))
+                _LOGGER.warning("ws sent and received: %s\n%s" % (message, self.current_state))
             return True
         except asyncio.TimeoutError:
             msg = ""
@@ -210,10 +217,16 @@ class MagiQtouch_Driver:
                 msg = "No response"
             else:
                 msg = f"Unexpected state after {job.status} responses"
-            _LOGGER.warning(f"set job timeout: {msg}")
-        if self.ws:
-            await self.ws.close()
+            _LOGGER.warning(f"set job timeout after {timeout}s: {msg}")
+        # if self.ws:
+        #    await self.ws.close()
         return False
+
+    async def send_pending(self):
+        if self.pending_setting:
+            _LOGGER.info("ws pending message send")
+            message = self.pending_setting.message
+            await self.ws.send_str(message)
 
     async def ws_handler(self):
         while True:
@@ -221,23 +234,24 @@ class MagiQtouch_Driver:
             headers = {"user-agent": "Dart/3.2 (dart:io)", "sec-websocket-protocol": "wasp"}
             # async with aiohttp.ClientSession(trust_env=True) as session:
             counter = 0
+            timeout = int(SCAN_INTERVAL.total_seconds() * 1.25)
 
             try:
                 async with self.httpsession.ws_connect(
                     WebsocketUrl + token,
                     headers=headers,
-                    heartbeat=10,
+                    autoping=False,
+                    autoclose=False,
+                    timeout=timeout,
                     # ssl=False
                 ) as ws:
                     self.ws = ws
                     _LOGGER.info("websocket connected")
                     if self.pending_setting:
-                        _LOGGER.info("sending pending message")
-                        message = self.pending_setting.message
-                        await ws.send_str(message)
+                        asyncio.create_task(self.send_pending())
                     # json.dumps({"action": "status", "params": {"device": self._mac_address}})
                     # )
-                    timeout = SCAN_INTERVAL.total_seconds()
+
                     connected_time = time.time()
                     while msg := await asyncio.wait_for(ws.receive(), timeout):
                         counter += 1
@@ -249,9 +263,10 @@ class MagiQtouch_Driver:
                             _LOGGER.warning(
                                 f"ws: received close request after "
                                 f"{counter} {msg} {msg.type} {msg.data}"
+                                f"{counter} {msg} {msg.type} {msg.data}"
                             )
                             break
-                        if msg.type == aiohttp.WSMsgType.TEXT:
+                        elif msg.type == aiohttp.WSMsgType.TEXT:
                             data = json.loads(msg.data)
                             # _LOGGER.info(f"ws: {msg.data}")
                             status = RemoteStatus.from_dict(data)
@@ -270,13 +285,23 @@ class MagiQtouch_Driver:
                                         self.pending_setting = None
 
                             if not self.pending_setting:
-                                _LOGGER.info("state processed")
-                                self.process_new_state(status)
+                                try:
+                                    self.process_new_state(status)
+                                except:
+                                    _LOGGER.exception("process_new_state failed")
+                                else:
+                                    _LOGGER.info("state processed")
+
                         elif msg.type == aiohttp.WSMsgType.ERROR:
+                            _LOGGER.warning(msg)
                             break
+                        else:
+                            _LOGGER.warning(f"ws unexpected: {msg}")
+
                         if (time.time() - connected_time) > (45 * 60):
                             # cognito auth token lasts (default) 1 hour.
                             # re-start websocket before we get too close to this.
+                            _LOGGER.info("cognito refresh")
                             break
 
             except asyncio.CancelledError:
@@ -288,7 +313,7 @@ class MagiQtouch_Driver:
                     return
                 _LOGGER.exception("websocket")
             except asyncio.TimeoutError:
-                _LOGGER.info(f"websocket timeout after {counter} messages.")
+                _LOGGER.warning(f"websocket timeout after {counter} messages.")
             except:
                 _LOGGER.exception("websocket")
             self.ws = None
@@ -347,13 +372,13 @@ class MagiQtouch_Driver:
         ts = 0 if initial else self.current_state.timestamp
         msg = json.dumps({"action": "status", "params": {"device": self._mac_address}})
         for _retry in range(3):
-            checker = lambda state: (state.runningMode and state.timestamp != ts)
-            if await self.ws_send_job(msg, checker):
+            checker = lambda state: (bool(state.runningMode) and state.timestamp != ts)
+            if await self.ws_send_job(msg, checker, timeout=20 if initial else 8):
                 # if await self.wait_for_new_state(checker, timeout=8):
                 break
             # no confirmation, retry
-            if self.ws:
-                await self.ws.close()
+            # if self.ws:
+            #    await self.ws.close()
 
     def process_new_state(self, new_state):
         # _LOGGER.warning(f"process_new_state: {new_state}")

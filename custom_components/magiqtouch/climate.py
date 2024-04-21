@@ -3,6 +3,7 @@ import logging
 
 from . import MagiQtouchCoordinator
 from .magiqtouch import MagiQtouch_Driver
+from .structures import UnitDetails
 
 import voluptuous as vol
 from typing import Callable, List
@@ -107,15 +108,35 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
 
         self.zone = zone
         self.master_zone = (not self.zone) or self.zone in (ZONE_TYPE_NONE, ZONE_TYPE_COMMON)
-        self.cooler = self.controller.available_coolers(self.zone)
-        self.heater = self.controller.available_heaters(self.zone)
-        self.master_mode_only_controller = not (self.cooler or self.heater)
-        if self.master_mode_only_controller:
-            self.cooler = self.controller.current_state.cooler
-            self.heater = self.controller.current_state.heater
+
+        self.master_mode_only_controller = False
+        self._cooler: list[UnitDetails] = []
+        self._heater: list[UnitDetails] = []
 
         # https://developers.home-assistant.io/blog/2024/01/24/climate-climateentityfeatures-expanded/
         self._enable_turn_on_off_backwards_compatibility = False
+
+    def _init_units(self):
+        if not self.available:
+            raise ValueError("Not available yet")
+        self._cooler = self.controller.available_coolers(self.zone)
+        self._heater = self.controller.available_heaters(self.zone)
+        self.master_mode_only_controller = not (self.cooler or self.heater)
+        if self.master_mode_only_controller:
+            self._cooler = self.controller.current_state.cooler
+            self._heater = self.controller.current_state.heater
+
+    @property
+    def cooler(self):
+        if not self._cooler:
+            self._init_units()
+        return self._cooler
+
+    @property
+    def heater(self):
+        if not self._heater:
+            self._init_units()
+        return self._heater
 
     @property
     def supported_features(self):
@@ -139,6 +160,9 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
     @property
     def active_units(self):
         state = self.controller.current_state
+        if not self.cooler:
+            _LOGGER.warning(f"active_units state {state}")
+
         if state.runningMode in (MODE_COOLER, MODE_COOLER_FAN):
             return self.cooler
         elif state.runningMode in (MODE_HEATER, MODE_HEATER_FAN):

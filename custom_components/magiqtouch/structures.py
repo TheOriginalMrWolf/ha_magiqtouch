@@ -2,6 +2,10 @@ import json
 import dataclasses
 from dataclasses import dataclass, field, fields, is_dataclass
 
+import logging
+
+_LOGGER = logging.getLogger("magiqtouch")
+
 
 def dataclass_from_dict(klass, d, show_errors=False):
     # https://stackoverflow.com/a/54769644
@@ -440,15 +444,20 @@ class RemoteStatus:
         for fld in fields(RemoteStatus):
             current = getattr(self, fld.name)
             new = getattr(other, fld.name)
+            # if fld.name == "cooler":
+            #     _LOGGER.warning(f"update cooler {fld.type} {type(fld.type)} {current}")
             if is_dataclass(fld.type):
                 for k, v in new.__dict__.items():
                     setattr(current, k, v)
-            elif isinstance(fld.type, list):
+            elif fld.name in ("cooler", "heater"):
+                if not current:
+                    current.extend(new)
+                    continue
                 for i, unit in enumerate(new):
                     cu = current[i]
                     if cu.zoneType != unit.zoneType or cu.name != unit.name:
                         raise ValueError(f"units out of order\n{self}\n{other}")
-                    for k, v in dataclasses.astuple(unit):
+                    for k, v in dataclasses.asdict(unit).items():
                         setattr(current[i], k, v)
             else:
                 setattr(self, fld.name, new)
