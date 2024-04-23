@@ -529,9 +529,19 @@ class MagiQtouch_Driver:
         #    raise ValueError(f"invalid zone: {state}")
         state = state or self.current_state
         if state.runningMode in (MODE_COOLER, MODE_COOLER_FAN):
-            devices = self.available_coolers(zone) or self.available_heaters(zone)
+            devices = (
+                self.available_coolers(zone)
+                or self.available_heaters(zone)
+                or self.current_state.cooler
+                or self.current_state.heater
+            )
         elif state.runningMode in (MODE_HEATER, MODE_HEATER_FAN):
-            devices = self.available_heaters(zone) or self.available_coolers(zone)
+            devices = (
+                self.available_heaters(zone)
+                or self.available_coolers(zone)
+                or self.current_state.heater
+                or self.current_state.cooler
+            )
         elif state.runningMode == "":
             raise ValueError(f"state not yet read: {state.runningMode}")
         else:
