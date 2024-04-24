@@ -121,7 +121,7 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
             raise ValueError("Not available yet")
         self._cooler = self.controller.available_coolers(self.zone)
         self._heater = self.controller.available_heaters(self.zone)
-        self.master_mode_only_controller = not (self.cooler or self.heater)
+        self.master_mode_only_controller = not (self._cooler or self._heater)
         if self.master_mode_only_controller:
             self._cooler = self.controller.current_state.cooler
             self._heater = self.controller.current_state.heater
