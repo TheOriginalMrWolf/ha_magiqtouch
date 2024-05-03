@@ -444,8 +444,6 @@ class RemoteStatus:
         for fld in fields(RemoteStatus):
             current = getattr(self, fld.name)
             new = getattr(other, fld.name)
-            # if fld.name == "cooler":
-            #     _LOGGER.warning(f"update cooler {fld.type} {type(fld.type)} {current}")
             if is_dataclass(fld.type):
                 for k, v in new.__dict__.items():
                     setattr(current, k, v)

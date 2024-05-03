@@ -111,16 +111,6 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         uid = f"{mac}{zone_label}-sensor-{self.label}"
         return uid
 
-    # @property
-    # def native_value(self) -> str:
-    #     value = self.data_callback()
-    #     _LOGGER.error(f"sensor read {value}")
-    #     return value
-
-    # @property
-    # def available(self) -> bool:
-    #     return True
-
     @property
     def should_poll(self) -> bool:
         return False

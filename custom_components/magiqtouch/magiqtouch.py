@@ -84,7 +84,7 @@ class MagiQtouch_Driver:
         self.verbose = True
 
     async def shutdown(self):
-        _LOGGER.warning("shutdown")
+        _LOGGER.info("shutdown")
         if self.ws_handler_task:
             self.ws_handler_task.cancel()
 
@@ -193,21 +193,20 @@ class MagiQtouch_Driver:
         if self.pending_setting:
             self.pending_setting.status = "replaced"
             self.pending_setting.event.set()
-            _LOGGER.warning("previous job replaced")
+            _LOGGER.info("previous job replaced")
         self.pending_setting = job
 
         if self.ws and not self.ws.closed:
-            _LOGGER.warning("ws send")
             await self.ws.send_str(message)
         else:
-            _LOGGER.warning("ws not open yet")
+            _LOGGER.info("ws not open yet")
         # if not open, the pending job will be
         # sent when it does open
 
         try:
             await asyncio.wait_for(job.event.wait(), timeout)
             if self.verbose:
-                _LOGGER.warning("ws sent and received: %s\n%s" % (message, self.current_state))
+                _LOGGER.info("ws sent and received: %s\n%s" % (message, self.current_state))
             return True
         except asyncio.TimeoutError:
             msg = ""
@@ -260,7 +259,7 @@ class MagiQtouch_Driver:
                             aiohttp.WSMsgType.CLOSING,
                             aiohttp.WSMsgType.CLOSED,
                         ):
-                            _LOGGER.warning(
+                            _LOGGER.info(
                                 f"ws: received close request after "
                                 f"{counter} {msg} {msg.type} {msg.data}"
                                 f"{counter} {msg} {msg.type} {msg.data}"
@@ -277,7 +276,7 @@ class MagiQtouch_Driver:
                                     self.pending_setting.event.set()
                                     self.pending_setting = None
                                 else:
-                                    _LOGGER.warning(f"received but no match: {status}")
+                                    _LOGGER.info(f"received but no match: {status}")
                                     if isinstance(self.pending_setting.status, int):
                                         self.pending_setting.status += 1
                                     if time.time() > self.pending_setting.timeout:
@@ -376,12 +375,8 @@ class MagiQtouch_Driver:
             if await self.ws_send_job(msg, checker, timeout=20 if initial else 8):
                 # if await self.wait_for_new_state(checker, timeout=8):
                 break
-            # no confirmation, retry
-            # if self.ws:
-            #    await self.ws.close()
 
     def process_new_state(self, new_state):
-        # _LOGGER.warning(f"process_new_state: {new_state}")
         if self._update_listener_override:
             logger = _LOGGER.warning if self.verbose else _LOGGER.debug
             logger("State watching: %s" % new_state)
@@ -406,22 +401,6 @@ class MagiQtouch_Driver:
             "action": "command",
             "params": state.to_dict(),
         }
-        # todo zone support
-        # data["params"]["selectedZone"] = 0
-
-        # for zone in range(10):
-        #     setattr(
-        #         data, f"OnOffZone{zone + 1}", getattr(state, f"OnOffZone{zone + 1}")
-        #     )
-        #     setattr(
-        #         data, f"TempZone{zone + 1}", getattr(state, f"SetTempZone{zone + 1}")
-        #     )
-        #     setattr(
-        #         data,
-        #         f"Override{zone + 1}",
-        #         getattr(state, f"ProgramModeOverriddenZone{zone + 1}"),
-        #     )
-
         return data
 
     @staticmethod
@@ -443,31 +422,9 @@ class MagiQtouch_Driver:
         ts = self.current_state.timestamp
         data = data or self.new_remote_props()
         jdata = json.dumps(data)
-        # update_lock = asyncio.Event()
-        # if checker:
-        #      async def override_listener(new_state):
-        #         nonlocal checker, update_lock, self
-        #         _LOGGER.warning(f"listen: {new_state}")
-        #         if checker(new_state):
-        #             _LOGGER.warning("true")
-        #             self.current_state = new_state
-        #             update_lock.set()
-        #         else:
-        #             _LOGGER.warning("false")
-        #             asyncio.create_task(self.refresh_state())
-
-        #     self._update_listener_override = override_listener
-
         if not checker:
             checker = (lambda state: state.timestamp != ts,)
 
-        # headers = await self._get_auth()
-        # async with self.httpsession.put(
-        #     ApiUrl + f"devices/{self._mac_address}",
-        #     headers=headers,
-        #     data=jdata,
-        # ) as rsp:
-        #     _LOGGER.debug(f"Update response received: {rsp.json()}")
         _LOGGER.info("sending new settings")
         await self.ws_send(jdata, checker)
 
@@ -584,10 +541,10 @@ class MagiQtouch_Driver:
             # if all zones are off, turn off system
             all_dev = chain(self.current_state.cooler, self.current_state.heater)
             if not [d for d in all_dev if d.zoneOn]:
-                _LOGGER.warning("All zones off, turning system off")
+                _LOGGER.info("All zones off, turning system off")
                 self.current_state.systemOn = False
 
-        _LOGGER.warning(f"set_zone_onoff {zone}={is_on} = {self.current_state}")
+        _LOGGER.info(f"set_zone_onoff {zone}={is_on} = {self.current_state}")
         await self.send_current_state(checker)
 
     async def set_fan_only(self, zone=ZONE_TYPE_NONE):
