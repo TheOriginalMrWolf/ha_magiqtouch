@@ -116,6 +116,22 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
         # https://developers.home-assistant.io/blog/2024/01/24/climate-climateentityfeatures-expanded/
         self._enable_turn_on_off_backwards_compatibility = False
 
+    @property
+    def name(self):
+        """Return the name of the device."""
+        if not self.master_zone:
+            return f"MagiQtouch - {self.controller.get_zone_name(self.zone)}"
+        return "MagiQtouch"
+
+    @property
+    def unique_id(self) -> str:
+        """Return the unique ID for this sensor."""
+        uid = self.controller.current_state.device
+        if not self.master_zone:
+            zone_name = self.controller.get_zone_name(self.zone).replace(" ", "-")
+            uid += f"-zone-{zone_name}"
+        return uid
+
     def _init_units(self):
         if not self.available:
             raise ValueError("Not available yet")
@@ -176,22 +192,6 @@ class MagiQtouch(CoordinatorEntity, ClimateEntity):
             return self.cooler
         else:
             return []
-
-    @property
-    def name(self):
-        """Return the name of the device."""
-        if not self.master_zone:
-            return f"MagiQtouch - {self.controller.get_zone_name(self.zone)}"
-        return "MagiQtouch"
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique ID for this sensor."""
-        uid = self.controller.current_state.device
-        if not self.master_zone:
-            zone_name = self.controller.get_zone_name(self.zone).replace(" ", "-")
-            uid += f"-zone-{zone_name}"
-        return uid
 
     @property
     def temperature_unit(self):

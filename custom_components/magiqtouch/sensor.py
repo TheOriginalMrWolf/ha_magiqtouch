@@ -2,7 +2,6 @@ import logging
 
 from . import MagiQtouchCoordinator
 from .magiqtouch import MagiQtouch_Driver
-from .const import ZONE_TYPE_NONE
 from typing import Callable, List
 
 
@@ -29,6 +28,8 @@ from .const import (
     # ATTR_MODEL,
     # ATTR_TARGET_TEMPERATURE,
     DOMAIN,
+    ZONE_TYPE_COMMON,
+    ZONE_TYPE_NONE,
 )
 
 _LOGGER = logging.getLogger("magiqtouch")
@@ -81,15 +82,23 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.label = label
         self.controller = controller
-        self._attr_name = "MagiQtouch " + label
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self.data_callback = data_callback
         self.zone = zone
+        self.master_zone = (not self.zone) or self.zone in (ZONE_TYPE_NONE, ZONE_TYPE_COMMON)
 
         self._attr_native_value = 0
         self._attr_available = False
+
+    @property
+    def name(self):
+        """Return the name of the device."""
+        if not self.master_zone:
+            zone_name = self.controller.get_zone_name(self.zone)
+            return f"MagiQtouch - {zone_name} - {self.label}"
+        return f"MagiQtouch - {self.label}"
 
     @callback
     def _handle_coordinator_update(self) -> None:
