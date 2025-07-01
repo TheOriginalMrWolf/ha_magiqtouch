@@ -93,16 +93,15 @@ class TemperatureSensor(CoordinatorEntity, SensorEntity):
     @property
     def name(self):
         """Return the name of the device."""
-        if not self.master_zone:
-            zone_name = self.controller.get_zone_name(self.zone)
-            return f"{zone_name} - {self.label}"
-        return f"{self.label}"
+        zone_name = self.controller.get_zone_name(self.zone) if not self.master_zone else "Master Zone"
+        return f"{zone_name} - {self.label}"
+
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         # self._attr_is_on = self.coordinator.data[self.idx]["state"]
-        _LOGGER.debug("coordinator updated")
+        _LOGGER.debug(f"{self.name} - coordinator updated")
         self._attr_native_value = self.data_callback(self.zone)
         self._attr_available = True
         self.async_write_ha_state()
