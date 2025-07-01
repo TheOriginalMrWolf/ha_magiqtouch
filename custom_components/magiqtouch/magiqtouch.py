@@ -235,7 +235,7 @@ class MagIQtouch_Driver:
                         break
                     elif msg.type == aiohttp.WSMsgType.TEXT:
                         data = json.loads(msg.data)
-                        # _LOGGER.info(f"ws: {msg.data}")
+                        _LOGGER.debug(f"websocket received data: {msg.data}")
                         status = RemoteStatus.from_dict(data)
                         _LOGGER.info(f"{ws} recv: {str(status)}")
                         if job and job.checker:
@@ -258,9 +258,9 @@ class MagIQtouch_Driver:
                             try:
                                 self.process_new_state(status)
                             except:
-                                _LOGGER.exception("process_new_state failed")
+                                _LOGGER.exception("process_new_state failed\n\n")
                             else:
-                                _LOGGER.info("state processed")
+                                _LOGGER.info("state processed\n\n")
 
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         _LOGGER.warning(msg)
@@ -401,15 +401,22 @@ class MagIQtouch_Driver:
             logger("State watching: %s" % new_state)
             return self._update_listener_override(new_state)
 
-        verbose = self.verbose or self.current_state.runningMode == ""
-        if verbose and new_state != self.current_state:
-            _LOGGER.warning(f"Current State: {new_state}")
+        if new_state != self.current_state:
+            # self.current_state.update(new_state)
+            self.current_state = new_state
+            # Clear caches so they are rebuilt from the new state
+            self._zone_coolers.clear()
+            self._zone_heaters.clear()
 
-        self.current_state.update(new_state)
+            verbose = self.verbose or self.current_state.runningMode == ""
+            if verbose and new_state != self.current_state:
+                _LOGGER.warning(f"Current State: {self.current_state}")
 
-        if self._update_listener:
-            _LOGGER.debug("State updated: %s" % new_state)
-            self._update_listener()
+            if self._update_listener:
+                _LOGGER.debug(f"Listener updated with new state: {new_state}")
+                self._update_listener()
+        else:
+            _LOGGER.debug("Received state is identical to current state (ignoring timestamp & touchCount); no update performed.")
 
     def new_remote_props(self, state=None):
         state = state or self.current_state
@@ -484,7 +491,9 @@ class MagIQtouch_Driver:
             self._zone_coolers[zone] = [
                 d for d in self.current_state.cooler if self.zone_match(d, zone)
             ]
-            _LOGGER.debug(f"self._zone_coolers: {self._zone_coolers}")
+            _LOGGER.debug(f"Updated {zone } cooler cache")
+        else:
+            _LOGGER.debug(f"Retrieved {zone } cooler from cache")
 
         return self._zone_coolers[zone]
 
@@ -493,7 +502,9 @@ class MagIQtouch_Driver:
             self._zone_heaters[zone] = [
                 d for d in self.current_state.heater if self.zone_match(d, zone)
             ]
-            _LOGGER.debug(f"self._zone_heaters: {self._zone_heaters}")
+            _LOGGER.debug(f"Updated {zone } heater cache")
+        else:
+            _LOGGER.debug(f"Retrieved {zone } heater from cache")
 
         return self._zone_heaters[zone]
 
