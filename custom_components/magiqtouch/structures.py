@@ -286,7 +286,7 @@ class RemoteStatus:
         s = flatten_dict(dataclasses.asdict(self))
         o = flatten_dict(dataclasses.asdict(other))
 
-        _LOGGER.debug(f"Object equality test:\nself:\n{s}\nother:\n{o}\n")
+        # _LOGGER.debug(f"Object equality test:\nself:\n{s}\nother:\n{o}\n")
         for key in list(s.keys()):
             if key.lower() in ("timestamp", "touchcount"):
                 s.pop(key)
