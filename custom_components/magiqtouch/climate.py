@@ -1,5 +1,6 @@
 """Platform for climate integration."""
 import logging
+import json
 
 from . import MagIQtouchCoordinator
 from .magiqtouch import MagIQtouch_Driver
@@ -40,6 +41,7 @@ from .const import (
     MODE_HEATER_FAN,
     CONTROL_MODE_TEMP,
     ZONE_COMMON,
+    ZONE_TYPE_MASTER,
     ZONE_NONE,
 )
 
@@ -79,10 +81,15 @@ async def async_setup_entry(
     driver: MagIQtouch_Driver = hass.data[DOMAIN][entry.entry_id]["driver"]
     coordinator: MagIQtouchCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    async_add_entities(
-        [MagIQtouch(entry.entry_id, driver, coordinator, zone) for zone in driver.zone_list],
-        update_before_add=False,
-    )
+    entities = []
+    for zone in driver.zone_list:
+        entity = MagIQtouch(entry.entry_id, driver, coordinator, zone)
+        _LOGGER.debug(f"{zone.name} - Created entity: {entity.name}, unique_id={entity.unique_id}")
+        entities.append(entity)
+
+    # _LOGGER.info("All created entities: %s", json.dumps(entities, indent=2))
+
+    async_add_entities(entities, update_before_add=False)
 
 
 class MagIQtouch(CoordinatorEntity, ClimateEntity):
@@ -107,50 +114,50 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
         }
 
         self.zone = zone
-        self.master_zone = (not self.zone) or self.zone in (ZONE_NONE, ZONE_COMMON)
+        self.master_zone = (not self.zone) or self.zone in (ZONE_NONE, ZONE_COMMON) or self.zone.type == ZONE_TYPE_MASTER
 
         self.master_mode_only_controller = False
-        self._cooler: list[UnitDetails] = []
-        self._heater: list[UnitDetails] = []
+        # self._cooler: list[UnitDetails] = []
+        # self._heater: list[UnitDetails] = []
 
         # https://developers.home-assistant.io/blog/2024/01/24/climate-climateentityfeatures-expanded/
         self._enable_turn_on_off_backwards_compatibility = False
 
+        _LOGGER.info(f"Instantiated thermostat - name: {self.name}, unique id: {self.unique_id}")
+
     @property
     def name(self):
         """Return the name of the device."""
-        if not self.master_zone:
-            return f"MagIQtouch - {self.controller.get_zone_name(self.zone)}"
-        return "MagIQtouch"
+        # if not self.master_zone:
+        return f"MagIQtouch - {self.controller.get_zone_name(self.zone)}"
+        # return "MagIQtouch"
 
     @property
     def unique_id(self) -> str:
         """Return the unique ID for this sensor."""
         uid = self.controller.current_state.device
-        if not self.master_zone:
-            zone_name = self.controller.get_zone_name(self.zone).replace(" ", "-")
-            uid += f"-zone-{zone_name}"
+        # if not self.master_zone:
+        zone_name = self.controller.get_zone_name(self.zone).replace(" ", "-")
+        uid += f"-zone-{zone_name}"
+        _LOGGER.debug(f"Returning Unique ID: {uid}")
         return uid
 
-    def _init_units(self):
-        self._cooler = self.controller.available_coolers(self.zone)
-        self._heater = self.controller.available_heaters(self.zone)
-        self.master_mode_only_controller = not (self._cooler or self._heater)
-        if self.master_mode_only_controller:
-            self._cooler = self.controller.current_state.cooler
-            self._heater = self.controller.current_state.heater
 
     @property
     def cooler(self):
-        if not self._cooler:
-            self._init_units()
-        return self._cooler
+        # Always fetch fresh from controller
+        coolers = self.controller.available_coolers(self.zone)
+        if not coolers and (not self.zone or self.zone in (ZONE_NONE, ZONE_COMMON)):
+            coolers = self.controller.current_state.cooler
+        return coolers
 
     @property
     def heater(self):
-        if not self._heater:
-            self._init_units()
-        return self._heater
+        # Always fetch fresh from controller
+        heaters = self.controller.available_heaters(self.zone)
+        if not heaters and (not self.zone or self.zone in (ZONE_NONE, ZONE_COMMON)):
+            heaters = self.controller.current_state.heater
+        return heaters
 
     @property
     def supported_features(self):
@@ -265,66 +272,79 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
             return
         await self.controller.set_temperature(temperature, zone=self.zone)
 
+
     @property
     def hvac_action(self):
-        on = self.controller.current_state.systemOn
-        if not on:
-            _LOGGER.debug(HVACAction.OFF)
-            return HVACAction.OFF
+        """
+        Return current running action (Current State)
+        """
 
-        # Show as off if individual zone is off
-        if (not self.master_mode_only_controller) and self.zone and self.zone != ZONE_NONE:
-            zone_on = self.controller.get_zone_onoff(self.zone)
-            if not zone_on:
-                _LOGGER.debug(HVACAction.OFF + " (zone)")
-                return HVACAction.OFF
-            elif not self.active_units:
-                # eg. heating mode in cool-only zones
-                return HVACAction.IDLE
-
-        runningMode = self.controller.current_state.runningMode
-        hvac_action = {
+        systemOn = self.controller.current_state.systemOn
+        currentSystemMode = self.controller.current_state.runningMode
+        action_map = {
             MODE_COOLER: HVACAction.COOLING,
             MODE_HEATER: HVACAction.HEATING,
             MODE_COOLER_FAN: HVACAction.FAN,
             MODE_HEATER_FAN: HVACAction.FAN,
-        }.get(runningMode, HVACAction.IDLE)
+            'zone_off': HVACAction.OFF,
+        }
 
-        _LOGGER.debug("runningMode: %s, hvac_action: %s", runningMode, hvac_action)
+        device = self.controller.active_device(self.zone)
+        if device:
+            running_state = device.runningState
+            zone_running_state = device.zoneRunningState
+        # if the current zone state is REQUIRED_RUNNING then we use the currentSystemMode (ie heating, cooling, etc).
+        # Any other state the then we return IDLE.
+        action_map['zone_on'] = action_map.get(currentSystemMode) if zone_running_state == "REQUIRED_RUNNING" else HVACAction.IDLE
 
-        # if hvac_action not in self.hvac_actions:
-        #     _LOGGER.warning("hvac_action not sorted by zone, returning idle")
-        #     hvac_action = HVACAction.IDLE
+        hvac_action = self._get_zone_mode_or_action(systemOn, currentSystemMode, action_map, HVACAction.OFF)
+        _LOGGER.debug(f"{self.controller.get_zone_name(self.zone) if self.zone else "Master Zone"} - Current operating mode requested - system on {systemOn}, currentSystemMode: {currentSystemMode}, hvac_action: {hvac_action}, running_state: {running_state}, zone_running_state: {zone_running_state}")
 
         return hvac_action
 
+
     @property
     def hvac_mode(self):
-        """Return the current operation mode."""
-        on = self.controller.current_state.systemOn
-        if not on:
-            _LOGGER.debug(f"hvac_mode: {HVACMode.OFF}")
-            return HVACMode.OFF
+        """
+        Set operation mode
+        Noting that zones are mapped to OFF/AUTO
+        """
 
-        if (not self.master_mode_only_controller) and self.zone and self.zone != ZONE_NONE:
-            zone_on = self.controller.get_zone_onoff(self.zone)
-            if not zone_on:
-                _LOGGER.debug(HVACAction.OFF + " (zone)")
-                return HVACMode.OFF
-            elif not self.active_units:
-                # eg. heating mode in cool-only zones
-                return HVACMode.OFF
-
-        runningMode = self.controller.current_state.runningMode
-        hvac_mode = {
+        systemOn = self.controller.current_state.systemOn
+        currentSystemMode = self.controller.current_state.runningMode
+        mode_map = {
             MODE_COOLER: HVACMode.COOL,
             MODE_HEATER: HVACMode.HEAT,
             MODE_COOLER_FAN: HVACMode.FAN_ONLY,
             MODE_HEATER_FAN: HVACMode.FAN_ONLY,
-        }.get(runningMode, HVACMode.OFF)
+            'zone_on': HVACMode.AUTO,
+            'zone_off': HVACMode.OFF,
+        }
 
-        _LOGGER.debug("runningMode: %s, hvac_mode: %s", runningMode, hvac_mode)
+        device = self.controller.active_device(self.zone)
+        if device:
+            running_state = device.runningState
+            zone_running_state = device.zoneRunningState
+
+        hvac_mode = self._get_zone_mode_or_action(systemOn, currentSystemMode, mode_map, HVACMode.OFF)
+        _LOGGER.debug(f"{self.controller.get_zone_name(self.zone) if self.zone else "Master Zone"} - operating mode set: system on {systemOn}, currentSystemMode: {currentSystemMode}, hvac_mode: {hvac_mode}, running_state: {running_state}, zone_running_state: {zone_running_state}")
+
         return hvac_mode
+
+
+    def _get_zone_mode_or_action(self, systemOn, currentSystemMode, mode_map, default):
+        """Helper for hvac_mode/_action to apply room/master zone logic"""
+        if not systemOn:
+            return default
+
+        if self.master_zone:
+            return mode_map.get(currentSystemMode, default)
+
+        else:
+            # Room zone only has two states - zone is on or off - which are mapped to OFF or AUTO
+            zone_on = self.controller.get_zone_onoff(self.zone)
+            return mode_map['zone_on'] if zone_on else mode_map['zone_off']
+
 
     @property
     def hvac_modes(self):
@@ -338,26 +358,16 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
             if self.cooler:
                 modes.append(HVACMode.COOL)
         else:
-            # individual zone controllers
-            if self.available:
-                state = self.controller.current_state
-                if state.runningMode == MODE_COOLER:
-                    modes.append(HVACMode.COOL)
-                elif state.runningMode == MODE_HEATER:
-                    modes.append(HVACMode.HEAT)
-                elif state.runningMode in (MODE_COOLER_FAN, MODE_HEATER_FAN):
-                    modes.append(HVACMode.FAN_ONLY)
-            else:
-                modes.append(HVACMode.AUTO)
+            modes.append(HVACMode.AUTO)
 
-        _LOGGER.debug(f"hvac_modes: {modes}")
+        _LOGGER.debug(f"{self.controller.get_zone_name(self.zone) if self.zone else "Master Zone"} - Available hvac_modes: {modes}")
         return modes
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set operation mode."""
         # This one gets confusing fast - each zone can be turned on and off individually,
         # but switching between heating vs fan mode applies only across the whole system.
-        _LOGGER.debug("Set hvac_mode: %s" % hvac_mode)
+        _LOGGER.debug(f"{self.controller.get_zone_name(self.zone) if self.zone else "Master Zone"} - hvac_mode set to: {hvac_mode}")
         if hvac_mode == HVACMode.OFF:
             await self.async_turn_off()
 
@@ -386,6 +396,7 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
     @property
     def fan_modes(self):
         """Return the supported fan modes."""
+        _LOGGER.debug(f"Fan modes requested, returning: {FAN_SPEEDS}")
         return FAN_SPEEDS
 
     @property
@@ -395,15 +406,19 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
             # running in temperature set point mode
             return FAN_SPEED_BY_TEMP
         speed = str(self.controller.active_device(self.zone).fan_speed)
+
         if speed == "0":
+            _LOGGER.debug(f"{self.name} - fan mode requested, returning: {FAN_SPEED_BY_TEMP}")
             return FAN_SPEED_BY_TEMP
+
+        _LOGGER.debug(f"{self.name} - fan mode requested, returning: {speed}")
         return speed
 
     async def async_set_fan_mode(self, fan_mode):
         if str(fan_mode) not in FAN_SPEEDS:
             _LOGGER.warning("Unknown fan speed: %s" % fan_mode)
         else:
-            _LOGGER.debug("Set fan to: %s" % fan_mode)
+            _LOGGER.debug(f"{self.controller.get_zone_name(self.zone) if self.zone else "Master Zone"} - Set fan to: {fan_mode}")
             if fan_mode == FAN_SPEED_BY_TEMP:
                 await self.controller.set_cooling_by_temperature(self.zone)
             elif fan_mode == FAN_SPEED_TO_PREV:
@@ -501,3 +516,4 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
         #     await self.controller.set_aoc_by_speed(self.zone)
         elif preset_mode == PRESET_NONE:
             await self.async_set_hvac_mode(HVACMode.OFF)
+

@@ -38,6 +38,7 @@ ZoneType = namedtuple("ZoneType", ("type", "name"))
 
 ZONE_TYPE_NONE = "NONE"
 ZONE_TYPE_COMMON = "COMMON"
+ZONE_TYPE_MASTER = "MASTER"
 
-ZONE_NONE = ZoneType(ZONE_TYPE_NONE, None)
-ZONE_COMMON = ZoneType(ZONE_TYPE_COMMON, None)
+ZONE_NONE = ZoneType(ZONE_TYPE_NONE, "Main")
+ZONE_COMMON = ZoneType(ZONE_TYPE_COMMON, "Common")
