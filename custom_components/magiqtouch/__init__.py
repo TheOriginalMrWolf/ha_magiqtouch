@@ -106,6 +106,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     driver = hass.data[DOMAIN][entry.entry_id]["driver"]
     await driver.logout()
 
+    # Clean up stored data
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+
+    _LOGGER.info(f"Magiqtouch integration unload ok: {unload_ok}")
+
     return unload_ok
 
 
