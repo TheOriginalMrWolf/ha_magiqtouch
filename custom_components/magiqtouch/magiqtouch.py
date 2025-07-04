@@ -20,6 +20,8 @@ from itertools import chain
 from pathlib import Path
 from typing import Callable, List
 
+from functools import cached_property
+
 from homeassistant.const import (
     UnitOfTemperature,
 )
@@ -610,7 +612,7 @@ class MagIQtouch_Driver:
         else:
             raise ValueError(f"active device unknown for '{zone}': {state}")
 
-    @property
+    @cached_property
     def native_unit_of_measurement(self):
         if self.active_device().temperature_units.lower() == "c":
             return UnitOfTemperature.CELSIUS
