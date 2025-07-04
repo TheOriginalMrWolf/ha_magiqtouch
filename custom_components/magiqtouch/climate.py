@@ -114,7 +114,7 @@ class MagIQtouch(CoordinatorEntity, ClimateEntity):
         }
 
         self.zone = zone
-        self.master_zone = (not self.zone) or self.zone in (ZONE_NONE, ZONE_COMMON) or self.zone.type == ZONE_TYPE_MASTER
+        self.master_zone = (not self.zone) or self.zone in (ZONE_NONE, ZONE_COMMON)
 
         self.master_mode_only_controller = False
         # self._cooler: list[UnitDetails] = []

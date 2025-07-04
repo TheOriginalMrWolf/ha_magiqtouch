@@ -483,17 +483,16 @@ class MagIQtouch_Driver:
         #     self.zone_list = zone_list
         #     self._config_update_required = True
         # return self.zone_list
-            self.master_zone_info = None
-            master_zone = self._find_master_zone()
-            if master_zone:
-                self.master_zone_info = self._extract_master_zone_info(master_zone)
-                # zone_list = self._build_zone_list_with_master(master_zone)
-                primary_zone = ZoneType(ZONE_TYPE_MASTER, self.master_zone_info["Name"])
-            else:
-                # zone_list = self._build_zone_list_with_common()
-                primary_zone = ZONE_COMMON
-
-            zone_list = self._complete_zone_list(primary_zone)
+            # self.master_zone_info = None
+            # master_zone = self._find_master_zone()
+            # if master_zone:
+            #     self.master_zone_info = self._extract_master_zone_info(master_zone)
+            #     # zone_list = self._build_zone_list_with_master(master_zone)
+            #     primary_zone = ZoneType(ZONE_TYPE_MASTER, self.master_zone_info["Name"])
+            # else:
+            #     # zone_list = self._build_zone_list_with_common()
+            primary_zone = ZONE_COMMON
+            zone_list = self._populate_zone_list(primary_zone)
 
         if zone_list != self.zone_list:
             _LOGGER.debug(f"Zone list: {zone_list}\nHas changed - updating")
@@ -501,10 +500,10 @@ class MagIQtouch_Driver:
             self._config_update_required = True
         return self.zone_list
 
-    def _complete_zone_list(self, primary_zone: ZoneType):
+    def _populate_zone_list(self, primary_zone: ZoneType):
+        '''This explicitly sets the master/primary zone.'''
+
         zones: set[ZoneType] = {primary_zone}
-        # this prevents changing the primary zones zoneType (ie back to individual) because
-        # master zone is picked up from a different place
         name_to_exclude = primary_zone.name
         _LOGGER.debug(f"Completing zone list. Primary zone: {primary_zone}")
         for d in self.current_state.cooler + self.current_state.heater:
@@ -514,40 +513,40 @@ class MagIQtouch_Driver:
                 zones.add(ZoneType(d.zoneType, d.name))
         return list(zones)
 
-    def _find_master_zone(self):
-        # Assuming only one MASTER zone so returning the first one found
-        aczones = getattr(self.current_system_state, "ACZones", None)
-        zones_list = getattr(aczones, "Zones", None) if aczones else None
-        if zones_list:
-            for zone in zones_list:
-                zone_type = getattr(zone, "Type", None) or (zone.get("Type") if isinstance(zone, dict) else None)
-                if zone_type == "MASTER":
-                    return zone
-        return None
+    # def _find_master_zone(self):
+    #     # Assuming only one MASTER zone so returning the first one found
+    #     aczones = getattr(self.current_system_state, "ACZones", None)
+    #     zones_list = getattr(aczones, "Zones", None) if aczones else None
+    #     if zones_list:
+    #         for zone in zones_list:
+    #             zone_type = getattr(zone, "Type", None) or (zone.get("Type") if isinstance(zone, dict) else None)
+    #             if zone_type == "MASTER":
+    #                 return zone
+    #     return None
 
-    def _extract_master_zone_info(self, zone):
-        get = lambda z, k: getattr(z, k, None) if hasattr(z, k) else z.get(k, None)
-        return {
-            "Name": get(zone, "Name"),
-            "CoolerCompatible": get(zone, "CoolerCompatible"),
-            "HeaterCompatible": get(zone, "HeaterCompatible"),
-            "ZoneObj": zone,
-        }
+    # def _extract_master_zone_info(self, zone):
+    #     get = lambda z, k: getattr(z, k, None) if hasattr(z, k) else z.get(k, None)
+    #     return {
+    #         "Name": get(zone, "Name"),
+    #         "CoolerCompatible": get(zone, "CoolerCompatible"),
+    #         "HeaterCompatible": get(zone, "HeaterCompatible"),
+    #         "ZoneObj": zone,
+    #     }
 
-    def _build_zone_list_with_master(self, master_zone):
-        master_zone_name = getattr(master_zone, "Name", None) or master_zone.get("Name")
-        zones: set[ZoneType] = {ZoneType(ZONE_TYPE_MASTER, master_zone_name)}
-        for d in self.current_state.cooler + self.current_state.heater:
-            if d.zoneType not in (ZONE_TYPE_MASTER, ZONE_TYPE_COMMON):
-                zones.add(ZoneType(d.zoneType, d.name))
-        return list(zones)
+    # def _build_zone_list_with_master(self, master_zone):
+    #     master_zone_name = getattr(master_zone, "Name", None) or master_zone.get("Name")
+    #     zones: set[ZoneType] = {ZoneType(ZONE_TYPE_MASTER, master_zone_name)}
+    #     for d in self.current_state.cooler + self.current_state.heater:
+    #         if d.zoneType not in (ZONE_TYPE_MASTER, ZONE_TYPE_COMMON):
+    #             zones.add(ZoneType(d.zoneType, d.name))
+    #     return list(zones)
 
-    def _build_zone_list_with_common(self):
-        zones: set[ZoneType] = {ZONE_COMMON}
-        for d in self.current_state.cooler + self.current_state.heater:
-            if d.zoneType != ZONE_TYPE_COMMON:
-                zones.add(ZoneType(d.zoneType, d.name))
-        return list(zones)
+    # def _build_zone_list_with_common(self):
+    #     zones: set[ZoneType] = {ZONE_COMMON}
+    #     for d in self.current_state.cooler + self.current_state.heater:
+    #         if d.zoneType != ZONE_TYPE_COMMON:
+    #             zones.add(ZoneType(d.zoneType, d.name))
+    #     return list(zones)
 
 
 
