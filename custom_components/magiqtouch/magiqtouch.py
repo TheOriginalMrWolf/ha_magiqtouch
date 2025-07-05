@@ -554,9 +554,11 @@ class MagIQtouch_Driver:
 
     @staticmethod
     def zone_match(dev, zone):
-        # return (zone in (ZONE_NONE, ZONE_COMMON) and dev.zoneType == zone.type) or (
-        #     ZoneType(dev.zoneType, dev.name) == zone
-        # )
+        _LOGGER.debug("zone_match() got dev: %s, and zone: %s", dev, zone)
+        return (zone in (ZONE_NONE, ZONE_COMMON) and dev.zoneType == zone.type) or (
+            # ZoneType(dev.zoneType, dev.name) == zone
+            dev.name == zone.name
+        )
         return dev.name == zone.name
 
     def available_coolers(self, zone):
