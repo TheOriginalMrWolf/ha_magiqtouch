@@ -620,11 +620,13 @@ class MagIQtouch_Driver:
             return UnitOfTemperature.FAHRENHEIT
 
     async def set_off(self):
+        _LOGGER.debug("Turning system off")
         self.current_state.systemOn = False
         checker = lambda state: (not state.systemOn)
         await self.send_current_state(checker)
 
     async def set_on(self):
+        _LOGGER.debug("Turning system on")
         self.current_state.systemOn = True
         checker = lambda state: bool(state.systemOn)
         await self.send_current_state(checker)
@@ -688,6 +690,7 @@ class MagIQtouch_Driver:
         checker = lambda state: (
             state.systemOn and self.current_state.runningMode == MODE_HEATER_FAN
         )
+        _LOGGER.debug("%s - setting fan_only_heater mode", zone.name)
         await self.send_current_state(checker)
 
     async def set_heating_by_temperature(self, zone=ZONE_NONE):
@@ -770,9 +773,10 @@ class MagIQtouch_Driver:
         checker = partial(
             self.state_checker, units="hc", zone=None, field="fan_speed", value=speed
         )
+        _LOGGER.debug("%s - setting fan speed to: %s", zone.name, speed)
         await self.send_current_state(checker)
 
-    async def set_temperature(self, new_temp, zone=ZONE_NONE):
+    async def async_set_zone_temperature(self, new_temp, zone=ZONE_NONE):
         new_temp = int(new_temp)
         if device := self.active_device(zone):
             device.set_temp = new_temp
