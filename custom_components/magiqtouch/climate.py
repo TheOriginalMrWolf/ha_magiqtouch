@@ -367,11 +367,11 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
         Only providing the AUTO mode if the system is on.
         """
 
-        # if self.controller.current_state.systemOn:
-        #     modes = [HVACMode.OFF, HVACMode.AUTO]
-        # else:
-        #     modes = [HVACMode.OFF]
-        modes = [HVACMode.OFF, HVACMode.AUTO]
+        if self.controller.current_state.systemOn:
+            modes = [HVACMode.OFF, HVACMode.AUTO]
+        else:
+            modes = [HVACMode.OFF]
+        # modes = [HVACMode.OFF, HVACMode.AUTO]
 
         _LOGGER.debug("%s - Available hvac_modes: %s", self.controller.get_zone_name(self.zone) if self.zone else "Master Zone", modes)
         return modes
@@ -389,7 +389,6 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
     async def async_turn_on(self):
         system_is_on = self.controller.current_state.systemOn
         await self.controller.set_zone_onoff(self.zone, system_is_on)
-        _LOGGER.debug("async_turn_on:: %s - system_is_on so turning on zone: %s", self.controller.get_zone_name(self.zone) if self.zone else "Master Zone", system_is_on)
 
     async def async_turn_off(self):
         await self.controller.set_zone_onoff(self.zone, False)
@@ -401,10 +400,15 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
         # but switching between heating vs fan mode applies only across the whole system.
         system_is_on = self.controller.current_state.systemOn
 
-        if hvac_mode == HVACMode.OFF:
+        if not system_is_on:
             await self.async_turn_off()
-        elif system_is_on:
-            await self.async_turn_on()
+        else:
+            if hvac_mode == HVACMode.OFF:
+                await self.async_turn_off()
+            elif hvac_mode == HVACMode.AUTO:
+                await self.async_turn_on()
+
+        # do nothing with unknown/illegal mode
 
         _LOGGER.debug("async_set_hvac_mode:: %s - system_is_on: %s, hvac_mode set to: %s", self.controller.get_zone_name(self.zone) if self.zone else "Master Zone", system_is_on, hvac_mode)
 
