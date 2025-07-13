@@ -80,8 +80,8 @@ async def async_get_config_entry_diagnostics(
 
     # System details/configuration
     try:
-        if hasattr(driver, 'current_system_state') and driver.current_system_state:
-            system_state_dict = driver.current_system_state.to_dict()
+        if hasattr(driver, 'current_system_configuration') and driver.current_system_configuration:
+            system_state_dict = driver.current_system_configuration.to_dict()
             diagnostics_data["system_state"] = system_state_dict
         else:
             diagnostics_data["system_state"] = None
