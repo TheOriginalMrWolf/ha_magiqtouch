@@ -78,7 +78,7 @@ class MagIQtouch_Driver:
         self._SessionToken = None
 
         self.current_state: RemoteStatus = RemoteStatus()
-        self.current_system_state: SystemDetails = SystemDetails()
+        self.current_system_configuration: SystemDetails = SystemDetails()
         self.zone_list: List[ZoneType] = []
         self._zone_coolers = dict()
         self._zone_heaters = dict()
@@ -110,7 +110,7 @@ class MagIQtouch_Driver:
         _LOGGER.setLevel(logging.INFO)
         self.verbose = verbose
         if verbose and not initial:
-            _LOGGER.warning(f"Current System State: {self.current_system_state}")
+            _LOGGER.warning(f"Current System Configuration: {self.current_system_configuration}")
             _LOGGER.warning(f"Current State: {self.current_state}")
 
     @property
@@ -320,7 +320,7 @@ class MagIQtouch_Driver:
                     _LOGGER.warning(f"Current System State: {json.dumps(redacted)}")
                 # parse the json into dataclass after its logged in case of errors
                 new_system_state = SystemDetails.from_dict(system_data)
-                if new_system_state != self.current_system_state:
+                if new_system_state != self.current_system_configuration:
                     self.set_system_state(new_system_state)
                     self._config_update_required = True
         except Exception:
@@ -330,8 +330,8 @@ class MagIQtouch_Driver:
             raise
 
     def set_system_state(self, state):
-        self.current_system_state = state
-        self._mac_address = self.current_system_state.Wifi_Module.MacAddressId
+        self.current_system_configuration = state
+        self._mac_address = self.current_system_configuration.Wifi_Module.MacAddressId
         self._refresh_msg = json.dumps(
             {"action": "status", "params": {"device": self._mac_address}}
         )
@@ -395,7 +395,7 @@ class MagIQtouch_Driver:
 
     def update_config_data(self, data):
         data[CONF.STATE] = self.current_state.to_dict()
-        data[CONF.SYS_STATE] = self.current_system_state.to_dict()
+        data[CONF.SYS_STATE] = self.current_system_configuration.to_dict()
         data[CONF.ZONES] = self.zone_list
         data[CONF.TITLE] = self.device_name
         _LOGGER.debug(f"Update config data with: {json.dumps(data)}")
@@ -467,12 +467,12 @@ class MagIQtouch_Driver:
         if isinstance(zone, ZoneType):
             return zone.name or zone.type
         if isinstance(zone, Zone):
-            return zone.name
+            return zone.Name
         raise ValueError()
 
 
     def update_zone_list(self) -> List[ZoneType]:
-        if self.current_system_state.NoOfZoneControls == 0:
+        if self.current_system_configuration.NoOfZoneControls == 0:
             zone_list = [ZONE_NONE]
         else:
         #     # Always create a common / master entity
@@ -517,7 +517,7 @@ class MagIQtouch_Driver:
 
     # def _find_master_zone(self):
     #     # Assuming only one MASTER zone so returning the first one found
-    #     aczones = getattr(self.current_system_state, "ACZones", None)
+    #     aczones = getattr(self.current_system_configuration, "ACZones", None)
     #     zones_list = getattr(aczones, "Zones", None) if aczones else None
     #     if zones_list:
     #         for zone in zones_list:
@@ -636,7 +636,9 @@ class MagIQtouch_Driver:
     def get_zone_onoff(self, zone):
         """Returns specific zone on and off."""
         device = self.active_device(zone)
-        return self.current_state.systemOn and device and device.zoneOn
+        onoff_state = self.current_state.systemOn and device and device.zoneOn
+        _LOGGER.info("%s - zone On/Off is: %s", zone.name, onoff_state)
+        return onoff_state
 
     async def set_zone_onoff(self, zone, is_on):
         """Turns a specific zone on and off."""
@@ -794,14 +796,14 @@ class MagIQtouch_Driver:
     # def get_installed_device_config(self):
     #     # todo update attrs or delete function
     #     device = {}
-    #     if self.current_system_state.HeaterInSystem:
-    #         device = self.current_system_state.Heater
-    #     elif self.current_system_state.AOCFixedInSystem:
-    #         device = self.current_system_state.AOCFixed
-    #     elif self.current_system_state.AOCInverterInSystem:
-    #         device = self.current_system_state.AOCInverter
-    #     elif self.current_system_state.NoOfEVAPInSystem > 0:
-    #         device = self.current_system_state.EVAPCooler
+    #     if self.current_system_configuration.HeaterInSystem:
+    #         device = self.current_system_configuration.Heater
+    #     elif self.current_system_configuration.AOCFixedInSystem:
+    #         device = self.current_system_configuration.AOCFixed
+    #     elif self.current_system_configuration.AOCInverterInSystem:
+    #         device = self.current_system_configuration.AOCInverter
+    #     elif self.current_system_configuration.NoOfEVAPInSystem > 0:
+    #         device = self.current_system_configuration.EVAPCooler
 
     #     return device
 
