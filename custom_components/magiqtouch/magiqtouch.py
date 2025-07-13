@@ -637,7 +637,7 @@ class MagIQtouch_Driver:
         """Returns specific zone on and off."""
         device = self.active_device(zone)
         onoff_state = self.current_state.systemOn and device and device.zoneOn
-        _LOGGER.info("%s - zone On/Off is: %s", zone.name, onoff_state)
+        _LOGGER.debug("%s - get zone On/Off: %s", zone.name, onoff_state)
         return onoff_state
 
     async def set_zone_onoff(self, zone, is_on):
