@@ -274,6 +274,9 @@ class ThermostatHeaterCoolerBaseClass(CoordinatorEntity, ClimateEntity):
         zone_running_state = getattr(device, "zoneRunningState", None)
         zone_is_turned_on = self.controller.get_zone_onoff(self.zone)
 
+
+        # The hvac_action can be the actual/system action for all zone types.
+
         if (not self.system_is_on) or (not zone_is_turned_on):
             hvac_action = HVACAction.OFF
         else:
@@ -284,30 +287,6 @@ class ThermostatHeaterCoolerBaseClass(CoordinatorEntity, ClimateEntity):
         _LOGGER.debug("%s - Current hvac_action requested - hvac_action: %s (system on %s, currentSystemMode: %s, system_running_state: %s, zone_is_turned_on: %s, zone_running_state: %s)", self.zone.name, hvac_action, self.system_is_on, self.current_system_mode, system_running_state, zone_is_turned_on, zone_running_state)
 
         return hvac_action
-
-    @property
-    def hvac_mode(self):
-        """
-        Get operating mode
-        """
-        device = self.controller.active_device(self.zone)
-        system_running_state = getattr(device, "runningState", None)
-        zone_running_state = getattr(device, "zoneRunningState", None)
-        zone_is_turned_on = self.controller.get_zone_onoff(self.zone)
-
-        if not self.system_is_on:
-            hvac_mode = HVACMode.OFF
-        else:
-            master_hvac_mode = self._HVAC_MODE_MAP.get(self.current_system_mode, HVACMode.OFF)
-            if self.is_master_zone or self.controller.get_zone_onoff(self.zone):
-                hvac_mode = master_hvac_mode
-            else:
-                hvac_mode = HVACMode.OFF
-
-        _LOGGER.debug("%s - Current hvac_mode requested - hvac_mode: %s (system on %s, current_system_mode: %s, system_running_state: %s, zone_is_turned_on: %s, zone_running_state: %s)", self.zone.name, hvac_mode, self.system_is_on, self.current_system_mode, system_running_state, zone_is_turned_on, zone_running_state)
-
-        return hvac_mode
-
 
 
 class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
@@ -382,6 +361,28 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
 
         return modes
 
+    @property
+    def hvac_mode(self):
+        """
+        Get operating mode
+        """
+        device = self.controller.active_device(self.zone)
+        system_running_state = getattr(device, "runningState", None)
+        zone_running_state = getattr(device, "zoneRunningState", None)
+        zone_is_turned_on = self.controller.get_zone_onoff(self.zone)
+
+        # The mode needs to align with hvac_modes, otherwise HA & HK errors.
+        if not self.system_is_on:
+            hvac_mode = HVACMode.OFF
+        elif zone_is_turned_on:
+            hvac_mode = HVACMode.AUTO
+        else:
+            hvac_mode = HVACMode.OFF
+
+        _LOGGER.debug("%s - Current hvac_mode requested - hvac_mode: %s (system on %s, current_system_mode: %s, system_running_state: %s, zone_is_turned_on: %s, zone_running_state: %s)", self.zone.name, hvac_mode, self.system_is_on, self.current_system_mode, system_running_state, zone_is_turned_on, zone_running_state)
+
+        return hvac_mode
+
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
         # Heating temperature can only be changed across the entire system.
@@ -394,8 +395,10 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
 
     async def async_turn_on(self):
         if self.system_is_on:
-            _LOGGER.debug("%s - async_turn_on called", self.zone.name)
+            _LOGGER.debug("%s - async_turn_on called, system ON, zone turned on", self.zone.name)
             await self.controller.set_zone_onoff(self.zone, True)
+        else:
+            _LOGGER.debug("%s - async_turn_on called, system OFF, request ignored", self.zone.name)
 
     async def async_turn_off(self):
         _LOGGER.debug("%s - async_turn_off called", self.zone.name)
@@ -413,11 +416,11 @@ class MagIQtouchAutoThermostat(ThermostatHeaterCoolerBaseClass):
             return
 
         if hvac_mode == HVACMode.OFF:
+            _LOGGER.debug("%s - async_set_hvac_mode:: system_is_on: %s, zone turned off")
             await self.async_turn_off()
         else:
+            _LOGGER.debug("%s - async_set_hvac_mode:: system_is_on: %s, zone turned on")
             await self.async_turn_on()
-
-        _LOGGER.debug("%s - async_set_hvac_mode:: system_is_on: %s, hvac_mode set to: %s", self.zone.name, self.system_is_on, hvac_mode)
 
         await self.coordinator.async_request_refresh()
 
@@ -455,11 +458,26 @@ class MagIQtouchMasterController(ThermostatHeaterCoolerBaseClass):
 
         _LOGGER.debug("Instantiated HEATER_COOLER - name: %s, unique id: %s", self.name, self.unique_id)
 
-    async def async_turn_on(self):
-        await self.controller.set_on()
+    @cached_property
+    def fan_modes(self):
+        """Return the supported fan modes."""
+        _LOGGER.debug("Fan modes requested, returning speeds: %s", FAN_SPEEDS)
+        return FAN_SPEEDS
 
-    async def async_turn_off(self):
-        await self.controller.set_off()
+    @property
+    def fan_mode(self):
+        """Return the current fan modes."""
+        # if self.controller.active_device(self.zone).control_mode == CONTROL_MODE_TEMP:
+        #     # running in temperature set point mode
+        #     return FAN_SPEED_BY_TEMP
+
+        speed = str(self.controller.active_device(self.zone).fan_speed)
+        # if speed == "0":
+        #     _LOGGER.debug("%s - fan mode requested, returning: %s", self.name, FAN_SPEED_BY_TEMP)
+        #     return FAN_SPEED_BY_TEMP
+
+        _LOGGER.debug("%s - fan mode requested, returning: %s", self.name, speed)
+        return speed
 
     @cached_property
     def hvac_modes(self):
@@ -474,6 +492,32 @@ class MagIQtouchMasterController(ThermostatHeaterCoolerBaseClass):
         _LOGGER.debug("%s - Was queried for hvac modes, sending: '%s'. self.controller.current_state.runningMode: '%s'",self.zone.name, modes, self.controller.current_state.runningMode)
 
         return modes
+
+    @property
+    def hvac_mode(self):
+        """
+        Get operating mode
+        """
+        device = self.controller.active_device(self.zone)
+        system_running_state = getattr(device, "runningState", None)
+        zone_running_state = getattr(device, "zoneRunningState", None)
+        zone_is_turned_on = self.controller.get_zone_onoff(self.zone)
+
+        # The mode needs to align with hvac_modes, otherwise HA & HK errors.
+        if not self.system_is_on:
+            hvac_mode = HVACMode.OFF
+        else:
+            hvac_mode = self._HVAC_MODE_MAP.get(self.current_system_mode, HVACMode.OFF)
+
+        _LOGGER.debug("%s - Current hvac_mode requested - hvac_mode: %s (system on %s, current_system_mode: %s, system_running_state: %s, zone_is_turned_on: %s, zone_running_state: %s)", self.zone.name, hvac_mode, self.system_is_on, self.current_system_mode, system_running_state, zone_is_turned_on, zone_running_state)
+
+        return hvac_mode
+
+    async def async_turn_on(self):
+        await self.controller.set_on()
+
+    async def async_turn_off(self):
+        await self.controller.set_off()
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set operation mode."""
@@ -498,28 +542,6 @@ class MagIQtouchMasterController(ThermostatHeaterCoolerBaseClass):
 
         _LOGGER.debug("%s - hvac_mode set to: %s", self.zone.name, hvac_mode)
 
-
-    @cached_property
-    def fan_modes(self):
-        """Return the supported fan modes."""
-        _LOGGER.debug("Fan modes requested, returning speeds: %s", FAN_SPEEDS)
-        return FAN_SPEEDS
-
-    @property
-    def fan_mode(self):
-        """Return the current fan modes."""
-        # if self.controller.active_device(self.zone).control_mode == CONTROL_MODE_TEMP:
-        #     # running in temperature set point mode
-        #     return FAN_SPEED_BY_TEMP
-
-        speed = str(self.controller.active_device(self.zone).fan_speed)
-        # if speed == "0":
-        #     _LOGGER.debug("%s - fan mode requested, returning: %s", self.name, FAN_SPEED_BY_TEMP)
-        #     return FAN_SPEED_BY_TEMP
-
-        _LOGGER.debug("%s - fan mode requested, returning: %s", self.name, speed)
-        return speed
-
     async def async_set_fan_mode(self, fan_mode):
         if str(fan_mode) not in FAN_SPEEDS:
             _LOGGER.warning("Unknown fan speed: %s" % fan_mode)
@@ -535,7 +557,7 @@ class MagIQtouchMasterController(ThermostatHeaterCoolerBaseClass):
         await self.coordinator.async_request_refresh()
 
 
-
+# ############
 # TODO: Add to base or derived classes:
 
   # @property
