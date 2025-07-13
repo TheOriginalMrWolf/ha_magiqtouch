@@ -49,7 +49,7 @@ async def async_setup_entry(
         for zone in driver.zone_list
     ]
 
-    if driver.current_system_state.ExternalAirSensorPresent:
+    if driver.current_system_configuration.ExternalAirSensorPresent:
         sensors.append(
             TemperatureSensor(
                 "External Temperature",
